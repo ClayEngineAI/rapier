@@ -535,7 +535,7 @@ impl KinematicCharacterController {
                 let kinematic_parent = collider
                     .parent
                     .and_then(|p| queries.bodies.get(p.handle))
-                    .filter(|rb| rb.is_kinematic());
+                    .filter(|rb| rb.is_kinematic() && dt != 0.0);
 
                 for m in &manifolds {
                     if self.is_grounded_at_contact_manifold(m, character_pos, dims) {
