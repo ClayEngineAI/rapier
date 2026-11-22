@@ -66,7 +66,12 @@ impl JointConstraintBuilder {
             crate::dynamics::solver::joint_data_num_constraints(&out_builder.joint);
     }
 
-    /// Updates the warm-start seeds (the impulses written back at the end of
+    /// The joint this builder was generated from.
+    pub fn joint_id(&self) -> JointIndex {
+        self.joint_id
+    }
+
+    /// Refreshes the warm-start seeds (the impulses written back at the end of
     /// the previous step) of a builder recycled across steps by the persistent
     /// joint assembly.
     pub fn update_warmstart_seeds(&mut self, joints_all: &[crate::dynamics::JointGraphEdge]) {

@@ -72,6 +72,10 @@ pub struct ImpulseJointSet {
     /// identical, so the caller's previous output is reused untouched.
     #[cfg_attr(feature = "serde-serialize", serde(skip))]
     selection_epochs: Option<(u32, u32)>,
+    /// Joints whose data changed through [`Self::set_data`] without changing the solver's joint
+    /// layout since the last step.
+    #[cfg_attr(feature = "serde-serialize", serde(skip))]
+    pub(crate) edited_joints: Vec<JointIndex>,
 }
 
 impl ImpulseJointSet {
@@ -88,6 +92,7 @@ impl ImpulseJointSet {
             all_joints_modified: false,
             assembly_epoch: 0,
             selection_epochs: None,
+            edited_joints: Vec::new(),
         }
     }
 
@@ -102,6 +107,7 @@ impl ImpulseJointSet {
     pub(crate) fn bump_assembly_epoch(&mut self) {
         self.assembly_epoch = self.assembly_epoch.wrapping_add(1);
         self.selection_epochs = None;
+        self.edited_joints.clear();
     }
 
     /// `true` if this body has (or recently had) impulse joints attached.
@@ -259,6 +265,36 @@ impl ImpulseJointSet {
         joint
     }
 
+    /// Replaces the description of the joint with the given handle.
+    ///
+    /// Unlike [`Self::get_mut`], this keeps the solver's joint selection and constraint layout
+    /// when `data` keeps the joint's enabled state and its locked, limited, motorized and coupled
+    /// axes: only this joint's constraint is regenerated on the next step. Limits, motor targets,
+    /// stiffness, damping, max forces, anchors, frames and the contacts flag change this way.
+    ///
+    /// Returns `None` if the handle is invalid.
+    pub fn set_data(
+        &mut self,
+        handle: ImpulseJointHandle,
+        data: GenericJoint,
+        wake_up_connected_bodies: bool,
+    ) -> Option<()> {
+        let id = *self.joint_ids.get(handle.0)?;
+        let joint = self.joint_graph.graph.edge_weight_mut(id)?;
+        let layout_kept = joint.data.has_same_solver_layout(&data);
+        joint.data = data;
+        if wake_up_connected_bodies {
+            self.to_wake_up.insert(joint.body1);
+            self.to_wake_up.insert(joint.body2);
+        }
+        if layout_kept {
+            self.edited_joints.push(id.index());
+        } else {
+            self.bump_assembly_epoch();
+        }
+        Some(())
+    }
+
     /// Gets a joint by index without knowing the generation (advanced/unsafe).
     ///
     /// ⚠️ **Prefer `get()` instead!** This bypasses generation checks.
@@ -398,6 +434,7 @@ impl ImpulseJointSet {
             handle: ImpulseJointHandle(handle),
             solver_body_ids: [u32::MAX; 2],
             solver_color: crate::geometry::contact_pair::SOLVER_COLOR_UNCOLORED,
+            solver_builder: Default::default(),
         };
 
         let default_id = InteractionGraph::<(), ()>::invalid_graph_index();
@@ -559,13 +596,13 @@ impl ImpulseJointSet {
         islands: &IslandManager,
         bodies: &RigidBodySet,
         out: &mut Vec<JointIndex>,
-    ) {
+    ) -> bool {
         // The selection depends only on the active-set epoch and the assembly epoch: while both
         // are unchanged, `out` (assumed to be the previous call's output, which the physics
         // pipeline keeps around) and the stamped solver-body ids are still exact.
         let epochs = (islands.active_set_epoch, self.assembly_epoch);
         if self.selection_epochs == Some(epochs) {
-            return;
+            return false;
         }
         self.selection_epochs = Some(epochs);
 
@@ -622,6 +659,7 @@ impl ImpulseJointSet {
                 out.push(i);
             }
         }
+        true
     }
 
     /// Removes a joint from the world.

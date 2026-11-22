@@ -352,11 +352,13 @@ impl PhysicsPipeline {
             impulse_joints.invalidate_selection_memo();
             self.joint_selection_primed = true;
         }
-        impulse_joints.select_active_interactions(
+        if impulse_joints.select_active_interactions(
             islands,
             bodies,
             &mut self.joint_constraint_indices,
-        );
+        ) {
+            self.counters.solver.joint_selection_rebuilds += 1;
+        }
         self.counters
             .stages
             .island_constraints_collection_time
@@ -384,6 +386,7 @@ impl PhysicsPipeline {
             let num_threads = 1;
 
             let joint_assembly_epoch = impulse_joints.assembly_epoch;
+            let edited_joints = core::mem::take(&mut impulse_joints.edited_joints);
             self.staged_solver.init_and_solve(
                 num_threads,
                 island_id,
@@ -397,6 +400,7 @@ impl PhysicsPipeline {
                 impulse_joints.joints_mut(),
                 &self.joint_constraint_indices,
                 joint_assembly_epoch,
+                &edited_joints,
                 multibody_joints,
                 soft_bodies,
                 narrow_phase,
@@ -408,7 +412,9 @@ impl PhysicsPipeline {
             self.staged_solver
                 .soft_constraints
                 .writeback_contacts(narrow_phase);
+            impulse_joints.edited_joints = edited_joints;
         }
+        impulse_joints.edited_joints.clear();
 
         // Generate contact force events if needed, and update each pair's
         // above-threshold status (the source of `ContactForceEvent::started`).

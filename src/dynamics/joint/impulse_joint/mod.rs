@@ -1,4 +1,5 @@
 pub use self::impulse_joint::ImpulseJoint;
+pub(crate) use self::impulse_joint::JointSolverBuilder;
 pub use self::impulse_joint_handle::ImpulseJointHandle;
 #[cfg(feature = "alloc")]
 pub use self::impulse_joint_set::ImpulseJointSet;

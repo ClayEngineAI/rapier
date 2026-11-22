@@ -12,8 +12,10 @@ use crate::dynamics::solver::joint_constraint::{
     joint_uses_angular_axes, soft_frame_angular_degenerate,
 };
 use crate::dynamics::solver::reset_buffer;
+use crate::counters::SolverCounters;
 use crate::dynamics::{
-    JointGraphEdge, JointIndex, MultibodyJointSet, RigidBodyHandle, RigidBodySet,
+    JointGraphEdge, JointIndex, JointSolverBuilder, MultibodyJointSet, RigidBodyHandle,
+    RigidBodySet,
 };
 use parry::math::SIMD_WIDTH;
 
@@ -27,8 +29,10 @@ impl StagedIslandSolver {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn init_joints(
         &mut self,
+        counters: &mut SolverCounters,
         active_set_epoch: u32,
         joint_assembly_epoch: u32,
+        edited_joints: &[JointIndex],
         warmstart_joints: bool,
         island_bodies: &[RigidBodyHandle],
         bodies: &RigidBodySet,
@@ -86,10 +90,17 @@ impl StagedIslandSolver {
                 }
             }
 
+            for joint_i in edited_joints {
+                if self.regenerate_joint_builder(*joint_i, bodies, impulse_joints) {
+                    counters.joint_builder_refreshes += 1;
+                }
+            }
+
             self.rebuild_generic_joints_staged(island_bodies, bodies, multibodies, impulse_joints);
             return;
         }
 
+        counters.joint_layout_rebuilds += 1;
         let joints = &mut self.joint_constraints;
         joints.two_body_interactions.clear();
         joints.generic_two_body_interactions.clear();
@@ -305,6 +316,22 @@ impl StagedIslandSolver {
             );
         }
 
+        for (builder_id, builder) in self
+            .joint_constraints
+            .velocity_constraints_builder
+            .iter()
+            .enumerate()
+        {
+            impulse_joints[builder.joint_id()].weight.solver_builder =
+                JointSolverBuilder::Scalar(builder_id as u32);
+        }
+        for (chunk_id, lanes) in self.joint_chunk_lanes.iter().enumerate() {
+            for joint_i in lanes {
+                impulse_joints[*joint_i].weight.solver_builder =
+                    JointSolverBuilder::Simd(chunk_id as u32);
+            }
+        }
+
         self.staged_joints_valid = true;
         // Without SIMD the parallel colors hold scalar builders whose joint
         // indices aren't retained, so their masks can't be re-validated: keep
@@ -502,6 +529,57 @@ impl StagedIslandSolver {
             builders: 0..self.joint_rows.len(),
             overflow: self.joint_overflow_range.clone(),
         });
+    }
+
+    /// Regenerates, in place, the builder the current layout holds for `joint_i` from the joint's
+    /// current data. Returns `false` if the current layout holds no builder for it.
+    fn regenerate_joint_builder(
+        &mut self,
+        joint_i: JointIndex,
+        bodies: &RigidBodySet,
+        impulse_joints: &[JointGraphEdge],
+    ) -> bool {
+        let joints = &mut self.joint_constraints;
+        match impulse_joints[joint_i].weight.solver_builder {
+            JointSolverBuilder::None => false,
+            JointSolverBuilder::Scalar(builder_id) => {
+                let builder_id = builder_id as usize;
+                let Some(builder) = joints.velocity_constraints_builder.get_mut(builder_id) else {
+                    return false;
+                };
+                if builder.joint_id() != joint_i {
+                    return false;
+                }
+                let mut row_cursor = self.joint_rows[builder_id].start;
+                JointConstraintBuilder::generate(
+                    &impulse_joints[joint_i].weight,
+                    bodies,
+                    joint_i,
+                    builder,
+                    &mut row_cursor,
+                );
+                true
+            }
+            JointSolverBuilder::Simd(chunk_id) => {
+                let chunk_id = chunk_id as usize;
+                let Some(lanes) = self.joint_chunk_lanes.get(chunk_id).copied() else {
+                    return false;
+                };
+                if !lanes.contains(&joint_i) {
+                    return false;
+                }
+                let joint_refs = array![|ii| &impulse_joints[lanes[ii]].weight];
+                let mut row_cursor = self.joint_chunk_rows[chunk_id].start;
+                JointConstraintBuilderSimd::generate(
+                    joint_refs,
+                    bodies,
+                    lanes,
+                    &mut joints.simd_velocity_constraints_builder[chunk_id],
+                    &mut row_cursor,
+                );
+                true
+            }
+        }
     }
 
     /// `true` if every joint of the cached assembly still holds a real color that this

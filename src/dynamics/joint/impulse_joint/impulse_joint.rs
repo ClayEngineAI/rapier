@@ -36,6 +36,18 @@ pub struct ImpulseJoint {
     /// The solver graph color assigned to this joint.
     #[cfg_attr(feature = "serde-serialize", serde(default = "default_solver_color"))]
     pub(crate) solver_color: u8,
+    /// The staged-solver builder generated from this joint by the last joint layout.
+    #[cfg_attr(feature = "serde-serialize", serde(skip))]
+    pub(crate) solver_builder: JointSolverBuilder,
+}
+
+/// Where the staged solver's last joint layout put a joint's constraint builder.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum JointSolverBuilder {
+    #[default]
+    None,
+    Scalar(u32),
+    Simd(u32),
 }
 
 #[cfg(feature = "serde-serialize")]

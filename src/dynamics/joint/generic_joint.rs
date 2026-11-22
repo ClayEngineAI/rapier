@@ -396,6 +396,20 @@ impl GenericJoint {
         }
     }
 
+    /// `true` if both joints are enabled alike and generate the same solver constraint rows.
+    pub(crate) fn has_same_solver_layout(&self, other: &Self) -> bool {
+        self.enabled == other.enabled
+            && self.locked_axes == other.locked_axes
+            && self.limit_axes == other.limit_axes
+            && self.motor_axes == other.motor_axes
+            && self.coupled_axes == other.coupled_axes
+            && self
+                .motors
+                .iter()
+                .zip(other.motors.iter())
+                .all(|(a, b)| a.model == b.model)
+    }
+
     /// Is this joint enabled?
     pub fn is_enabled(&self) -> bool {
         self.enabled == JointEnabled::Enabled

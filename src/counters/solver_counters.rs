@@ -22,6 +22,12 @@ pub struct SolverCounters {
     pub velocity_update_time: Timer,
     /// Time spent to write force back to user-accessible data.
     pub velocity_writeback_time: Timer,
+    /// Recomputed active impulse-joint selections since the pipeline was created.
+    pub joint_selection_rebuilds: u64,
+    /// Rebuilt staged-solver joint colorings and constraint layouts since the pipeline was created.
+    pub joint_layout_rebuilds: u64,
+    /// Single joint constraint builders regenerated in a reused layout since the pipeline was created.
+    pub joint_builder_refreshes: u64,
 }
 
 impl SolverCounters {
@@ -36,6 +42,9 @@ impl SolverCounters {
             velocity_resolution_time: Timer::new(),
             velocity_update_time: Timer::new(),
             velocity_writeback_time: Timer::new(),
+            joint_selection_rebuilds: 0,
+            joint_layout_rebuilds: 0,
+            joint_builder_refreshes: 0,
         }
     }
 

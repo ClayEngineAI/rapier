@@ -44,6 +44,7 @@ impl StagedIslandSolver {
         impulse_joints: &mut [JointGraphEdge],
         joint_indices: &[JointIndex],
         joint_assembly_epoch: u32,
+        edited_joints: &[JointIndex],
         multibodies: &mut MultibodyJointSet,
         soft_bodies: &mut SoftBodySet,
         // The narrow phase and colliders: read-only, for the soft-body surface contacts.
@@ -276,8 +277,10 @@ impl StagedIslandSolver {
         // constraints only). Colors too small to parallelize plus the generic
         // (multibody) joints are solved by worker 0 in exclusive stages.
         self.init_joints(
+            &mut counters.solver,
             islands.active_set_epoch,
             joint_assembly_epoch,
+            edited_joints,
             base_params.warmstart_joints,
             island_bodies,
             bodies,
